@@ -160,6 +160,7 @@ class PegSolitaireGUI:
                 text=f"New Automated game: {board_type}, size {size}. Press Autoplay."
             )
 
+        # Only log NEW_GAME once — when recording is already active
         if self.recorder.recording:
             self.recorder.log(f"NEW_GAME {size} {board_type} {mode}")
 
@@ -169,12 +170,6 @@ class PegSolitaireGUI:
         """Start or stop recording based on checkbox state."""
         if self.recording_var.get():
             self.recorder.start("game.txt")
-            # Log the current game state so replaying starts from the right config
-            if self.game is not None:
-                size = self.game.board.size
-                board_type = self.board_type_var.get()
-                mode = self.game_mode.get()
-                self.recorder.log(f"NEW_GAME {size} {board_type} {mode}")
             self.status_label.config(text="Recording started. Moves will be saved to game.txt.")
         else:
             self.recorder.stop()
@@ -189,7 +184,11 @@ class PegSolitaireGUI:
         self.game.randomize()
 
         if self.recorder.recording:
-            self.recorder.log("RANDOMIZE")
+            board_state = []
+            for r in range(self.game.board.size):
+                for c in range(self.game.board.size):
+                    board_state.append(str(self.game.board.get_cell(r, c)))
+            self.recorder.log("RANDOMIZE_STATE " + " ".join(board_state))
 
         self.draw_board()
         self.status_label.config(text="Board randomized! Keep playing.")
@@ -249,21 +248,18 @@ class PegSolitaireGUI:
         self.status_label.config(text="Replaying recorded game...")
 
         def run_replay():
-            for command in commands:
-                # Schedule each command on the main thread and wait
-                self.root.after(0, lambda cmd=command: self._process_replay_command(cmd))
-                time.sleep(0.7)
-            self.root.after(0, lambda: self.status_label.config(text="Replay finished."))
+            for i, command in enumerate(commands):
+                self.root.after(i * 1000, lambda cmd=command: self._process_replay_command(cmd))
+            self.root.after(len(commands) * 1000, lambda: self.status_label.config(text="Replay finished."))
 
-        thread = threading.Thread(target=run_replay, daemon=True)
-        thread.start()
+        run_replay()
 
     def _process_replay_command(self, command):
         """Process one replay command from the recorded file (runs on main thread)."""
         parts = command.split()
         if not parts:
             return
-        if parts[0] == "RECORDING_STOPPED": # only new line
+        if parts[0] == "RECORDING_STOPPED":
             return
 
         if parts[0] == "NEW_GAME":
@@ -292,9 +288,13 @@ class PegSolitaireGUI:
 
             self.draw_board()
 
-        elif parts[0] == "RANDOMIZE":
-            if isinstance(self.game, ManualGame):
-                self.game.randomize()
+        elif parts[0] == "RANDOMIZE_STATE":
+            values = list(map(int, parts[1:]))
+            idx = 0
+            for r in range(self.game.board.size):
+                for c in range(self.game.board.size):
+                    self.game.board.set_cell(r, c, values[idx])
+                    idx += 1
             self.draw_board()
 
     # ------------------------------------------------------------------
